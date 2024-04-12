@@ -1,0 +1,9 @@
+version: "3"
+services:
+    
+  fines_app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - "/home/cs/Downloads/Output:/SortedFiles"
