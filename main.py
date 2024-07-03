@@ -27,8 +27,11 @@ def match(directory):
                 # print(root + '/' + dirname)
                 holdingdir = root + '/' + dirname
                 # Step 2: Grab all the files in this directory and shove them in the matches list.
-                for file in os.listdir(holdingdir):
-                    matches.append(holdingdir + '/' + os.fsdecode(file))
+                for root2, dirnames2, filenames2 in os.walk(holdingdir):
+                    #print(filenames2)
+                    #print(root2)
+                    for filename2 in filenames2:
+                        matches.append(root2 + '/' + filename2)
     #print(matches)
     return matches
 
@@ -121,7 +124,7 @@ def main():
     populateReport(mapSchoolToFile)
     sortReportsByEmail()
     #checkFileHeaders(['./al_Trent/DSpaceNotes.odt', './al_Trent/Trent.csv', './al_uOttawa/Ottawa.csv', './InputAFNFiles_csv/al_Guelph/York.csv'])
-
+    #match(setUp())
 
 main()
 
