@@ -20,7 +20,7 @@ def match(directory):
     # Step 1: Obtain all directories matching the pattern:
     for root, dirnames, filenames in os.walk(directory):
         for dirname in dirnames:
-            pattern = re.compile("al_*")
+            pattern = re.compile("al-*")
             if pattern.match(dirname):
                 # print(dirname)
                 # print(root)
