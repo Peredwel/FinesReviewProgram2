@@ -1,17 +1,29 @@
+# Edited to work with a config.yaml file
+# Carolyn Sullivan, July 9, 2024
+
 import os
 import csv
 import operator
-import argparse
 import re
+import yaml
+import smtplib, ssl
 
 HEADERS = ['lender_institution', 'borrower_institution', 'full_name', 'user_email', 'expiry_date', 'remaining_amount', 'active_loan_count']
+CONFIGFILE = "config.yaml"
 
-#Function to pull path for files as commandline argument
-def setUp():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('directory', type=str, help='directory from which to run this script')
-    #print(parser.parse_args().directory)
-    return parser.parse_args().directory
+# Function to set up using YAML file:
+# Returns dictionary
+def setUpYaml(configfile):
+    data = {"error": "Something went horribly wrong with your config file"}
+    with open(configfile) as stream:
+        try:
+            #print(yaml.safe_load(stream))
+            data = yaml.safe_load(stream)
+            #print(data['email_subject'])
+        except yaml.YAMLError as exc:
+            print(exc)
+    return data
+
 
 # A function to create a list of matching files within a repository
 # Returns a list of filenames with absolute paths
@@ -20,7 +32,7 @@ def match(directory):
     # Step 1: Obtain all directories matching the pattern:
     for root, dirnames, filenames in os.walk(directory):
         for dirname in dirnames:
-            pattern = re.compile("al_*")
+            pattern = re.compile("al-*")
             if pattern.match(dirname):
                 # print(dirname)
                 # print(root)
@@ -79,7 +91,9 @@ def createReportFiles():
 # Iterates through the input files and sorts all borrowers from one institution into that institution's file
 # Also receives the list of matches created in match(directory)
 def populateReport(filedict):
-    correctfiles = checkFileHeaders(match(setUp()))
+    data = setUpYaml(CONFIGFILE)
+    directorypath = data["scriptpath"]
+    correctfiles = checkFileHeaders(match(directorypath))
     #print(correctfiles)
     for filename in correctfiles: # provides string filename as absolute path
         line_count = 0
@@ -118,14 +132,25 @@ def sortReportsByEmail():
                 csv_writer.writerow(["lender_institution","borrower_institution","full_name","user_email","expiry_date","remaining_amount","active_loan_count"])
                 csv_writer.writerows(sorted_rows)
 
-
+# This function is essentially copied verbatim from https://realpython.com/python-send-email/#option-2-setting-up-a-local-smtp-server
+# https://mailtrap.io/blog/python-send-email/
+def sendEmail():
+    data = setUpYaml(CONFIGFILE)
+    with smtplib.SMTP(data["smtpserver"], data["port"]) as server:
+        mailinglist = data["email_recipients"]
+        server.starttls()
+        server.login(data["username"], data["password"])
+        for receiver_email in mailinglist:
+            server.sendmail(data["email_source"], receiver_email, data["message"])
+            print(receiver_email)
 def main():
     mapSchoolToFile = createReportFiles()
     populateReport(mapSchoolToFile)
     sortReportsByEmail()
-    #checkFileHeaders(['./al_Trent/DSpaceNotes.odt', './al_Trent/Trent.csv', './al_uOttawa/Ottawa.csv', './InputAFNFiles_csv/al_Guelph/York.csv'])
-    #match(setUp())
+    sendEmail()
 
 main()
+
+
 
 
