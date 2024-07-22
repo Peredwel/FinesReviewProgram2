@@ -1,5 +1,5 @@
 # Edited to work with a config.yaml file
-# Carolyn Sullivan, July 9, 2024
+# Carolyn Sullivan, July 22, 2024
 
 import os
 import csv
