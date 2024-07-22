@@ -7,9 +7,18 @@ import operator
 import re
 import yaml
 import smtplib, ssl
+import json
 
 HEADERS = ['lender_institution', 'borrower_institution', 'full_name', 'user_email', 'expiry_date', 'remaining_amount', 'active_loan_count']
 CONFIGFILE = "config.yaml"
+
+def changeInputFile(oldfile):
+    stringlist = oldfile.split("/")
+    filename = stringlist[-1]
+    newfile = "old_" + filename
+    newabsfile = oldfile.replace(filename, newfile)
+    os.rename(oldfile, newabsfile)
+    return
 
 # Function to set up using YAML file:
 # Returns dictionary
@@ -26,7 +35,8 @@ def setUpYaml(configfile):
 
 
 # A function to create a list of matching files within a repository
-# Returns a list of filenames with absolute paths
+# Returns a list of filenames with absolute paths that haven't been previously processed (ie. no
+# old_ prefix.
 def match(directory):
     matches = []
     # Step 1: Obtain all directories matching the pattern:
@@ -43,8 +53,11 @@ def match(directory):
                     #print(filenames2)
                     #print(root2)
                     for filename2 in filenames2:
-                        matches.append(root2 + '/' + filename2)
-    #print(matches)
+                        print(filename2)
+                        pattern = re.compile("old_*")
+                        if not pattern.match(filename2):
+                            matches.append(root2 + '/' + filename2)
+    print(matches)
     return matches
 
 #This function checks the csv files output in match()
@@ -75,6 +88,7 @@ def checkFileHeaders(matcheslist):
     return correctfiles
 
 # This function creates empty report files for each school
+# Uses file containing university names
 # Returns a dictionary relating which file corresponds to which institution
 def createReportFiles():
     filedict = {}
@@ -85,7 +99,16 @@ def createReportFiles():
             location = 'OutputFiles/' + school.strip().replace('/', '').replace(' ', '_') + '.csv'
             filedict[school] = location
     csv_file.close()
+    #print(filedict)
     return filedict
+
+# This function creates empty report files for each school
+# Uses json file
+def createReportFiles2():
+    file = open("AFNSchools.json")
+    datadict = json.load(file)
+    print(datadict)
+    return datadict
 
 # Receives the filedict created in the first function
 # Iterates through the input files and sorts all borrowers from one institution into that institution's file
@@ -116,6 +139,8 @@ def populateReport(filedict):
                         writefile.close()
                 line_count += 1
             csv_file1.close()
+        #print(filename)
+        #changeInputFile(filename)
 
 # Goes through the reports in OutputFiles
 def sortReportsByEmail():
@@ -142,12 +167,14 @@ def sendEmail():
         server.login(data["username"], data["password"])
         for receiver_email in mailinglist:
             server.sendmail(data["email_source"], receiver_email, data["message"])
-            print(receiver_email)
+            #print(receiver_email)
+
 def main():
-    mapSchoolToFile = createReportFiles()
+    mapSchoolToFile = createReportFiles2()
     populateReport(mapSchoolToFile)
     sortReportsByEmail()
     sendEmail()
+
 
 main()
 
