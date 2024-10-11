@@ -1,13 +1,16 @@
-# Edited to work with a config.yaml file
-# Carolyn Sullivan, July 22, 2024
-
 import os
 import csv
 import operator
 import re
 import yaml
-import smtplib, ssl
+import smtplib
+import ssl
 import json
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import logging
+from datetime import datetime
+from pathlib import Path
 
 HEADERS = ['lender_institution', 'borrower_institution', 'full_name', 'user_email', 'expiry_date', 'remaining_amount', 'active_loan_count']
 CONFIGFILE = "config.yaml"
@@ -18,46 +21,43 @@ def changeInputFile(oldfile):
     newfile = "old_" + filename
     newabsfile = oldfile.replace(filename, newfile)
     os.rename(oldfile, newabsfile)
-    return
+    logging.info(f"Renamed {oldfile} to {newabsfile}")
 
 # Function to set up using YAML file:
 # Returns dictionary
 def setUpYaml(configfile):
-    data = {"error": "Something went horribly wrong with your config file"}
-    with open(configfile) as stream:
-        try:
-            #print(yaml.safe_load(stream))
+    try:
+        with open(configfile, 'r') as stream:
             data = yaml.safe_load(stream)
-            #print(data['email_subject'])
-        except yaml.YAMLError as exc:
-            print(exc)
-    return data
+            return data
+    except FileNotFoundError as e:
+        logging.error(f"Config file '{configfile}' not found: {e}")
+        return {"error": f"Config file '{configfile}' not found."}
+    except yaml.YAMLError as e:
+        logging.error(f"Error loading YAML from {configfile}: {e}")
+        return {"error": f"Error loading YAML: {e}"}
+    except Exception as e:
+        logging.error(f"Error reading config file '{configfile}': {e}")
+        return {"error": f"Error reading config file: {e}"}
 
 
 # A function to create a list of matching files within a repository
-# Returns a list of filenames with absolute paths that haven't been previously processed (ie. no
-# old_ prefix.
+# Returns a list of filenames with absolute paths that haven't been previously processed (ie. no old_ prefix).
 def match(directory):
     matches = []
-    # Step 1: Obtain all directories matching the pattern:
-    for root, dirnames, filenames in os.walk(directory):
+    pattern = re.compile("al-*")
+
+    for root, dirnames, _ in os.walk(directory):
         for dirname in dirnames:
-            pattern = re.compile("al-*")
             if pattern.match(dirname):
-                # print(dirname)
-                # print(root)
-                # print(root + '/' + dirname)
-                holdingdir = root + '/' + dirname
-                # Step 2: Grab all the files in this directory and shove them in the matches list.
-                for root2, dirnames2, filenames2 in os.walk(holdingdir):
-                    #print(filenames2)
-                    #print(root2)
+                holdingdir = os.path.join(root, dirname)
+                for root2, _, filenames2 in os.walk(holdingdir):
                     for filename2 in filenames2:
-                        print(filename2)
-                        pattern = re.compile("old_*")
-                        if not pattern.match(filename2):
-                            matches.append(root2 + '/' + filename2)
-    print(matches)
+                        if not filename2.startswith("old_"):
+                            matches.append(os.path.join(root2, filename2))
+                            logging.info(f"Found matching file: {filename2}")
+
+    logging.info(f"Total matching files: {len(matches)}")
     return matches
 
 #This function checks the csv files output in match()
@@ -65,50 +65,53 @@ def match(directory):
 # fact, for the set of users graduating that semester, etc.
 # Accept list of matches from match() and check to make sure they're actually the correct format, etc.
 def checkFileHeaders(matcheslist):
-    errorfile = open("Logs/errorfile.txt", 'a')
-    #print(matcheslist)
+    log_file_path = "Logs/errorfile.txt"
     correctfiles = []
-    for filename in matcheslist:
-        filetype = os.path.splitext(filename)[-1]
-        #print(filetype)
-        if filetype == '.csv':
-            with open(filename, encoding='latin-1') as csv_file1:
-                csv_reader = csv.reader(csv_file1, delimiter=',')
-                headers = next(csv_reader)
-                headers[0] = headers[0].replace('ï»¿','') #remove byte order mark
-                if headers != HEADERS:
-                    errorfile.write(filename + "\t The headers in this file do not match those of the expected analytics report.  Did you provide the correct file?\n")
-                   # TODO: add conversion option from xlsx
-                correctfiles.append(filename)
-            csv_file1.close()
-        else:
-            errorfile.write(filename + "\t The extension of this file is not as expected.  Did you provide the correct file?\n")
-    errorfile.close()
-    #print(correctfiles)
+
+    with open(log_file_path, 'a') as errorfile:
+        for filename in matcheslist:
+            filetype = os.path.splitext(filename)[-1].lower()
+
+            if filetype == '.csv':
+                try:
+                    with open(filename, encoding='latin-1') as csv_file1:
+                        csv_reader = csv.reader(csv_file1, delimiter=',')
+                        headers = next(csv_reader)
+                        headers[0] = headers[0].replace('ï»¿', '')  # Remove byte order mark
+
+                        if headers != HEADERS:
+                            errorfile.write(f"{filename}\t The headers do not match the expected format.\n")
+                        else:
+                            correctfiles.append(filename)
+                            logging.info(f"File {filename} passed header check.")
+                except Exception as e:
+                    errorfile.write(f"{filename}\t Error reading file: {e}\n")
+                    logging.error(f"Error reading file {filename}: {e}")
+            else:
+                errorfile.write(f"{filename}\t Incorrect file extension.\n")
+                logging.warning(f"File {filename} has incorrect extension.")
+
     return correctfiles
 
 # This function creates empty report files for each school
-# Uses file containing university names
-# Returns a dictionary relating which file corresponds to which institution
-def createReportFiles():
-    filedict = {}
-    with open('AFNSchools.csv', encoding='latin-1') as csv_file:
-        csv_reader = csv.reader(csv_file, delimiter=',')
-        for row in csv_reader:
-            school = row[0]
-            location = 'OutputFiles/' + school.strip().replace('/', '').replace(' ', '_') + '.csv'
-            filedict[school] = location
-    csv_file.close()
-    #print(filedict)
-    return filedict
-
-# This function creates empty report files for each school
 # Uses json file
-def createReportFiles2():
-    file = open("AFNSchools.json")
-    datadict = json.load(file)
-    print(datadict)
-    return datadict
+def createReportFiles(filename="AFNSchools.json"):
+    try:
+        with open(filename, 'r') as file:
+            datadict = json.load(file)
+
+        for university, csv_file in datadict.items():
+            os.makedirs(os.path.dirname(csv_file), exist_ok=True)
+            with open(csv_file, 'w') as f:
+                pass  # Just create the file
+            logging.info(f"Created empty file: {csv_file}")
+        return datadict
+    except FileNotFoundError:
+        logging.error(f"Error: File '{filename}' not found.")
+        return None
+    except json.JSONDecodeError:
+        logging.error(f"Error: Failed to decode JSON from '{filename}'.")
+        return None
 
 # Receives the filedict created in the first function
 # Iterates through the input files and sorts all borrowers from one institution into that institution's file
@@ -117,67 +120,122 @@ def populateReport(filedict):
     data = setUpYaml(CONFIGFILE)
     directorypath = data["scriptpath"]
     correctfiles = checkFileHeaders(match(directorypath))
-    #print(correctfiles)
-    for filename in correctfiles: # provides string filename as absolute path
-        line_count = 0
+    logging.info(f"Found {len(correctfiles)} files with correct headers in {directorypath}")
+
+    for filename in correctfiles:
+        logging.info(f"Processing file to populate report: {filename}")
         with open(filename, encoding='latin-1') as csv_file1:
             csv_reader = csv.reader(csv_file1, delimiter=',')
+            next(csv_reader)
             for row in csv_reader:
-                if line_count > 0:
-                    lender = row[0]
-                    borrower = row[1]
-                    # open appropriate write file:
-                    if borrower != "":
-                        with open(filedict[borrower], 'a', encoding='latin-1', newline='\n') as writefile:
-                            csv_writer = csv.writer(writefile, delimiter='\t')
-                            csv_writer.writerow(row)
-                        writefile.close()
-                    else:
-                        with open("OutputFiles/errors.csv", 'a', encoding='latin-1', newline='\n') as writefile:
-                            csv_writer = csv.writer(writefile, delimiter='\t')
-                            csv_writer.writerow(row)
-                        writefile.close()
-                line_count += 1
-            csv_file1.close()
-        #print(filename)
-        #changeInputFile(filename)
+                borrower = row[1]
+                if borrower:
+                    with open(filedict[borrower], 'a', encoding='latin-1', newline='\n') as writefile:
+                        csv_writer = csv.writer(writefile, delimiter='\t')
+                        csv_writer.writerow(row)
+                else:
+                    with open("OutputFiles/errors.csv", 'a', encoding='latin-1', newline='\n') as writefile:
+                        csv_writer = csv.writer(writefile, delimiter='\t')
+                        csv_writer.writerow(row)
+                    logging.warning(f"Borrower missing in {filename}, added to errors.csv.")
 
 # Goes through the reports in OutputFiles
-def sortReportsByEmail():
-    for file in os.listdir('OutputFiles'):
-        filename = os.fsdecode(file)
-        line_count = 0
-        with open('OutputFiles/' + filename, "r", encoding='latin-1') as csv_file1:
-            csv_reader = csv.reader(csv_file1, delimiter='\t')
-            with open('SortedFiles/' + filename, "w", newline='', encoding='latin-1') as writefile:
-                csv_writer = csv.writer(writefile, delimiter='\t')
-                # headers = next(csv_reader)
-                # blank = next(csv_reader)
-                sorted_rows = sorted(csv_reader, key=operator.itemgetter(3))
-                csv_writer.writerow(["lender_institution","borrower_institution","full_name","user_email","expiry_date","remaining_amount","active_loan_count"])
-                csv_writer.writerows(sorted_rows)
+def sortReportsByEmail(input_dir='OutputFiles', output_dir='SortedFiles'):
+    try:
+        os.makedirs(output_dir, exist_ok=True)
 
-# This function is essentially copied verbatim from https://realpython.com/python-send-email/#option-2-setting-up-a-local-smtp-server
-# https://mailtrap.io/blog/python-send-email/
+        for file in os.listdir(input_dir):
+            filename = os.fsdecode(file)
+            input_path = os.path.join(input_dir, filename)
+            output_path = os.path.join(output_dir, filename)
+
+            with open(input_path, "r", encoding='latin-1') as csv_file1:
+                csv_reader = csv.reader(csv_file1, delimiter='\t')
+                sorted_rows = sorted(csv_reader, key=lambda row: row[3].lower())
+
+                with open(output_path, "w", newline='', encoding='latin-1') as writefile:
+                    csv_writer = csv.writer(writefile, delimiter='\t')
+                    csv_writer.writerow(HEADERS)
+                    csv_writer.writerows(sorted_rows)
+
+            logging.info(f"Sorted file: {filename}")
+
+    except Exception as e:
+        logging.error(f"Error occurred while sorting reports: {e}", exc_info=True)
+
 def sendEmail():
     data = setUpYaml(CONFIGFILE)
+
+    email_subject = data["email_subject"]
+    email_source = data["email_source"]
+    email_message = data["message"]
+
+    message = MIMEMultipart()
+    message["From"] = email_source
+    message["Subject"] = email_subject
+    message.attach(MIMEText(email_message, "plain"))
+
     with smtplib.SMTP(data["smtpserver"], data["port"]) as server:
-        mailinglist = data["email_recipients"]
         server.starttls()
-        server.login(data["username"], data["password"])
-        for receiver_email in mailinglist:
-            server.sendmail(data["email_source"], receiver_email, data["message"])
-            #print(receiver_email)
+
+        if data["username"] and data["password"]:
+            server.login(data["username"], data["password"])
+
+        for receiver_email in data["email_recipients"]:
+            message["To"] = receiver_email
+            server.sendmail(email_source, receiver_email, message.as_string())
+            logging.info(f"Sent email to {receiver_email}")
+
+def setup_logger():
+    # Create Logs directory if it doesn't exist
+    log_dir = "Logs"
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Define log file name based on current date and time
+    log_filename = datetime.now().strftime("%Y-%m-%d_%H_%M.log")
+    log_file_path = os.path.join(log_dir, log_filename)
+
+    # Set up logging to console and file
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+
+    # Create file handler to log to file
+    file_handler = logging.FileHandler(log_file_path)
+    file_handler.setLevel(logging.INFO)
+
+    # Create console handler to log to console
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+
+    # Set log format
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+
+    # Add handlers to logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
 
 def main():
-    mapSchoolToFile = createReportFiles2()
-    populateReport(mapSchoolToFile)
-    sortReportsByEmail()
-    sendEmail()
+    setup_logger()
 
+    try:
+        logging.info("Creating report files...")
+        mapSchoolToFile = createReportFiles()
 
-main()
+        logging.info("Populating report...")
+        populateReport(mapSchoolToFile)
 
+        logging.info("Sorting reports by email address...")
+        sortReportsByEmail()
 
+        logging.info("Sending emails...")
+        sendEmail()
 
+        logging.info("Process completed successfully.")
+    except Exception as e:
+        logging.error("An error occurred: %s", e)
+        logging.error("Full stack trace:", exc_info=True)
 
+if __name__ == "__main__":
+    main()
