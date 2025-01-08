@@ -1,5 +1,5 @@
-# Edited to work with a config.yaml file
-# Carolyn Sullivan, July 22, 2024
+
+#Edited January 8, 2024 to insert zeroes in place of blanks in output of report.
 
 import os
 import csv
@@ -110,6 +110,16 @@ def createReportFiles2():
     print(datadict)
     return datadict
 
+# Replaces empty spaces in input with zeroes where appropriate (entries 4 & 5)
+# @row  A row of data from the original csv
+def insertZero(row):
+    if row[5] == "":
+        row[5] = 0
+    if row[6] == "":
+        row[6] = "0"
+    return row
+
+
 # Receives the filedict created in the first function
 # Iterates through the input files and sorts all borrowers from one institution into that institution's file
 # Also receives the list of matches created in match(directory)
@@ -130,7 +140,8 @@ def populateReport(filedict):
                     if borrower != "":
                         with open(filedict[borrower], 'a', encoding='latin-1', newline='\n') as writefile:
                             csv_writer = csv.writer(writefile, delimiter='\t')
-                            csv_writer.writerow(row)
+                            # 01/08/24: Edit the row being written to csv_writer here:
+                            csv_writer.writerow(insertZero(row))
                         writefile.close()
                     else:
                         with open("OutputFiles/errors.csv", 'a', encoding='latin-1', newline='\n') as writefile:
