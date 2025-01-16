@@ -1,0 +1,7 @@
+Logs/
+OutputFiles/
+SortedFiles/
+venv/
+.idea/
+
+config.yaml
